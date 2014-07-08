@@ -9,12 +9,13 @@ import os.path
 from . import gl
 from ..util import logger
 from .globject import GLObject
+from .parser import get_uniforms, get_attributes, remove_comments
 
 
 # ------------------------------------------------------------ Shader class ---
 class Shader(GLObject):
     """ Abstract shader class
-    
+
     Parameters
     ----------
 
@@ -76,19 +77,19 @@ class Shader(GLObject):
     def source(self):
         """ Shader source (string or filename) """
         return self._source
-    
+
     def _activate(self):
         # shaders do not need any kind of (de)activation
         # in the sense of glActiveSomething()
-        
+
         # Recompile if necessary
         if self._need_compile:
             self._compile_shader()
             self._need_compile = False
-    
+
     def _deactivate(self):
         pass  # shaders do not need any kind of (de)activation
-    
+
     def _create(self):
         """ Create the shader object on the GPU """
 
@@ -114,7 +115,7 @@ class Shader(GLObject):
         if not status:
             errors = gl.glGetShaderInfoLog(self._handle)
             errormsg = self._get_error(errors, 4)
-            raise RuntimeError("Shader compilation error in %r:\n%s" % 
+            raise RuntimeError("Shader compilation error in %r:\n%s" %
                                (self, errormsg))
 
     def _delete(self):
@@ -133,7 +134,7 @@ class Shader(GLObject):
             An error string as returned byt the compilation process
         """
         error = str(error)
-        
+
         # Nvidia
         # 0(7): error C1008: undefined variable "MV"
         m = re.match(r'(\d+)\((\d+)\)\s*:\s(.*)', error)
@@ -193,47 +194,30 @@ class Shader(GLObject):
     def uniforms(self):
         """ Shader uniforms obtained from source code """
 
-        uniforms = []
-        regex = re.compile("""\s*uniform\s+(?P<type>\w+)\s+"""
-                           """(?P<name>\w+)\s*(\[(?P<size>\d+)\])?\s*;""")
-        for m in re.finditer(regex, self._code):
-            size = -1
-            gtype = Shader._gtypes[m.group('type')]
-            if m.group('size'):
-                size = int(m.group('size'))
-            if size >= 1:
-                for i in range(size):
-                    name = '%s[%d]' % (m.group('name'), i)
-                    uniforms.append((name, gtype))
-            else:
-                uniforms.append((m.group('name'), gtype))
-        return uniforms
+        # We take care of:  uniform float a;
+        #                   uniform float a[3];
+        #                   uniform float a, b, c;
+        code = remove_comments(self._code)
+        gtypes = Shader._gtypes
+        return [ (n,gtypes[t]) for (n,t) in get_uniforms(code) ]
+
 
     @property
     def attributes(self):
         """ Shader attributes obtained from source code """
 
-        attributes = []
-        regex = re.compile("""\s*attribute\s+(?P<type>\w+)\s+"""
-                           """(?P<name>\w+)\s*(\[(?P<size>\d+)\])?\s*;""")
-        for m in re.finditer(regex, self._code):
-            size = -1
-            gtype = Shader._gtypes[m.group('type')]
-            if m.group('size'):
-                size = int(m.group('size'))
-            if size >= 1:
-                for i in range(size):
-                    name = '%s[%d]' % (m.group('name'), i)
-                    attributes.append((name, gtype))
-            else:
-                attributes.append((m.group('name'), gtype))
-        return attributes
+        # We take care of:  attribute float a;
+        #                   attribute float a[3];
+        #                   attribute float a, b, c;
+        code = remove_comments(self._code)
+        gtypes = Shader._gtypes
+        return [(n,gtypes[t]) for (n,t) in get_attributes(code)]
 
 
 # ------------------------------------------------------ VertexShader class ---
 class VertexShader(Shader):
     """ Vertex shader object
-    
+
     Parameters
     ----------
 
@@ -251,7 +235,7 @@ class VertexShader(Shader):
 # ---------------------------------------------------- FragmentShader class ---
 class FragmentShader(Shader):
     """ Fragment shader object
-    
+
     Parameters
     ----------
 
